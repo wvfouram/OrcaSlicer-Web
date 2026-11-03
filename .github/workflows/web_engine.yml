@@ -31,7 +31,7 @@ jobs:
     uses: ./.github/workflows/build_check_cache.yml
     with:
       # The owner's PC (self-hosted runner labelled orca-pc). Use windows-latest if it is offline.
-      os: orca-pc
+      os: windows-latest
       arch: x64
       compiler: clang
     secrets: inherit
