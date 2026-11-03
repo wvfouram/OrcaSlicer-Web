@@ -20,10 +20,11 @@ STATUS="$PREFIX/status.txt"
 ALL=(zlib png jpeg boost gmp mpfr eigen cgal cereal nlopt draco libnoise opencv assimp occt blosc imath openexr openvdb slvs)
 DEPS=("${@:-${ALL[@]}}")
 
-export CFLAGS="-O2 -fexceptions" CXXFLAGS="-O2 -fexceptions"
+export CFLAGS="-O2 -fexceptions" CXXFLAGS="-O2 -fexceptions" LDFLAGS="-fexceptions"
 CMAKE_COMMON=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_PREFIX_PATH="$PREFIX"
               -DCMAKE_FIND_ROOT_PATH="$PREFIX" -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=OFF
-              -DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CXXFLAGS" -DCMAKE_POLICY_VERSION_MINIMUM=3.5)
+              -DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CXXFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS"
+              -DCMAKE_POLICY_VERSION_MINIMUM=3.5)
 
 fetch() { # url dir
     local url=$1 dir=$2 file="$WORK/dl/$(basename "${1%%\?*}")"
@@ -52,25 +53,23 @@ build_jpeg()    { fetch https://github.com/libjpeg-turbo/libjpeg-turbo/archive/r
 build_eigen()   { fetch https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.zip eigen && cmake_build . -DEIGEN_BUILD_TESTING=OFF -DBUILD_TESTING=OFF -DEIGEN_BUILD_DOC=OFF ; }
 build_cereal()  { fetch https://github.com/USCiLab/cereal/archive/refs/tags/v1.3.0.zip cereal && cmake_build . -DJUST_INSTALL_CEREAL=ON ; }
 build_nlopt()   { fetch https://github.com/stevengj/nlopt/archive/v2.5.0.tar.gz nlopt && cmake_build . -DNLOPT_PYTHON=OFF -DNLOPT_OCTAVE=OFF -DNLOPT_MATLAB=OFF -DNLOPT_GUILE=OFF -DNLOPT_SWIG=OFF -DNLOPT_TESTS=OFF ; }
-build_draco()   { fetch https://github.com/google/draco/archive/refs/tags/1.5.7.zip draco && cmake_build . -DDRACO_JS_GLUE=OFF -DDRACO_WASM=OFF -DDRACO_TESTS=OFF -DDRACO_BUILD_EXECUTABLES=OFF ; }
+build_draco()   { fetch https://github.com/google/draco/archive/refs/tags/1.5.7.zip draco && EMSCRIPTEN="$EMSDK/upstream/emscripten" cmake_build . -DDRACO_JS_GLUE=OFF -DDRACO_WASM=OFF -DDRACO_TESTS=OFF -DDRACO_BUILD_EXECUTABLES=OFF ; }
 build_libnoise(){ fetch https://github.com/SoftFever/Orca-deps-libnoise/archive/refs/tags/1.0.zip libnoise && cmake_build . -DBUILD_LIBNOISE_DOCUMENTATION=OFF -DBUILD_LIBNOISE_EXAMPLES=OFF ; }
 build_slvs()    { fetch https://github.com/JacobStoren/SolveSpaceLib/archive/4d8704523e4bf212fadf5189f92484244f670fea.zip slvs && cmake_build . ; }
 build_cgal()    { fetch https://github.com/CGAL/cgal/releases/download/v6.2.1/CGAL-6.2.1.zip cgal && cmake_build . -DCGAL_DISABLE_GMP=OFF -DWITH_CGAL_Qt6=OFF ; }
 
 build_boost() {
-    fetch https://github.com/boostorg/boost/releases/download/boost-1.84.0/boost-1.84.0.tar.gz boost || return 1
-    ./bootstrap.sh --with-libraries=system,filesystem,thread,log,locale,regex,chrono,atomic,date_time,iostreams,program_options,nowide >/dev/null || return 1
-    # threading=multi compiles against Emscripten's pthread stubs; the engine never starts a thread in this build.
-    ./b2 -j"$JOBS" toolset=emscripten link=static runtime-link=static variant=release threading=multi \
-         cxxflags="$CXXFLAGS" cflags="$CFLAGS" boost.locale.icu=off boost.locale.posix=on boost.locale.iconv=off \
-         -sNO_BZIP2=1 -sNO_LZMA=1 -sNO_ZSTD=1 -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBRARY_PATH="$PREFIX/lib" \
-         --prefix="$PREFIX" install
+    # Boost's own CMake build; b2's emscripten toolset emits objects current emcc can't read.
+    fetch https://github.com/boostorg/boost/releases/download/boost-1.84.0/boost-1.84.0-cmake.tar.gz boost || return 1
+    cmake_build . -DBOOST_INCLUDE_LIBRARIES="system;filesystem;thread;log;locale;regex;chrono;atomic;date_time;iostreams;program_options;nowide;algorithm;geometry;multiprecision;polygon;spirit;beast;asio;property_tree;uuid;bimap;dll;process" \
+        -DBOOST_LOCALE_ENABLE_ICU=OFF -DBOOST_LOCALE_ENABLE_ICONV=OFF -DBOOST_IOSTREAMS_ENABLE_BZIP2=OFF \
+        -DBOOST_IOSTREAMS_ENABLE_LZMA=OFF -DBOOST_IOSTREAMS_ENABLE_ZSTD=OFF -DBOOST_IOSTREAMS_ENABLE_ZLIB=ON -DBUILD_TESTING=OFF
 }
 
 build_gmp() {
     fetch https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz gmp || return 1
     emconfigure ./configure --host=none --disable-assembly --enable-cxx --disable-shared --enable-static --prefix="$PREFIX" \
-        CC_FOR_BUILD=gcc ABI=long && emmake make -j"$JOBS" && emmake make install
+        CC_FOR_BUILD=gcc && emmake make -j"$JOBS" && emmake make install
 }
 build_mpfr() {
     fetch https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.2.tar.bz2 mpfr || return 1
@@ -81,7 +80,7 @@ build_mpfr() {
 build_opencv() {
     # The engine uses OpenCV for texture-to-colour import only: core + imgproc is enough.
     fetch https://github.com/opencv/opencv/archive/refs/tags/4.14.0.tar.gz opencv || return 1
-    cmake_build . -DBUILD_LIST=core,imgproc -DBUILD_opencv_world=ON -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
+    cmake_build . -DBUILD_LIST=core,imgproc -DBUILD_opencv_world=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
         -DBUILD_opencv_apps=OFF -DWITH_PTHREADS_PF=OFF -DCV_ENABLE_INTRINSICS=OFF -DCPU_BASELINE= -DCPU_DISPATCH= -DWITH_IPP=OFF \
         -DWITH_ITT=OFF -DWITH_OPENCL=OFF -DWITH_EIGEN=OFF -DWITH_PROTOBUF=OFF -DBUILD_ZLIB=OFF -DWITH_ADE=OFF -DWITH_LAPACK=OFF \
         -DBUILD_JAVA=OFF -DBUILD_opencv_python3=OFF -DBUILD_opencv_js=OFF -DOPENCV_GENERATE_PKGCONFIG=OFF
@@ -102,7 +101,7 @@ build_occt() {
 }
 build_blosc()   { fetch https://github.com/Blosc/c-blosc/archive/refs/tags/v1.17.0.zip blosc && cmake_build . -DBUILD_SHARED=OFF -DBUILD_TESTS=OFF -DBUILD_BENCHMARKS=OFF -DDEACTIVATE_SNAPPY=ON -DDEACTIVATE_AVX2=ON -DDEACTIVATE_SSE2=ON -DPREFER_EXTERNAL_ZLIB=ON ; }
 build_imath()   { fetch https://github.com/AcademySoftwareFoundation/Imath/archive/refs/tags/v3.1.11.tar.gz imath && cmake_build . -DBUILD_TESTING=OFF -DPYTHON=OFF ; }
-build_openexr() { fetch https://github.com/AcademySoftwareFoundation/openexr/archive/refs/tags/v2.5.5.zip openexr && cmake_build . -DBUILD_TESTING=OFF -DOPENEXR_BUILD_UTILS=OFF -DPYILMBASE_ENABLE=OFF -DOPENEXR_VIEWERS_ENABLE=OFF -DILMBASE_PACKAGE_PREFIX="$PREFIX" ; }
+build_openexr() { fetch https://github.com/AcademySoftwareFoundation/openexr/archive/refs/tags/v2.5.5.zip openexr && cmake_build . -DBUILD_TESTING=OFF -DINSTALL_OPENEXR_EXAMPLES=OFF -DOPENEXR_BUILD_EXAMPLES=OFF -DOPENEXR_BUILD_UTILS=OFF -DPYILMBASE_ENABLE=OFF -DOPENEXR_VIEWERS_ENABLE=OFF -DILMBASE_PACKAGE_PREFIX="$PREFIX" ; }
 build_openvdb() {
     fetch https://github.com/tamasmeszaros/openvdb/archive/a68fd58d0e2b85f01adeb8b13d7555183ab10aa5.zip openvdb || return 1
     cmake_build . -DOPENVDB_BUILD_CORE=ON -DOPENVDB_CORE_SHARED=OFF -DOPENVDB_CORE_STATIC=ON -DOPENVDB_BUILD_BINARIES=OFF \
