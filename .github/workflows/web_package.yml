@@ -49,6 +49,7 @@ jobs:
         with:
           pattern: OrcaSlicer_Windows_*_portable
           path: engine-download
+          merge-multiple: true
           run-id: ${{ steps.engine_run.outputs.id }}
           github-token: ${{ github.token }}
       - name: Build server exe
@@ -66,8 +67,7 @@ jobs:
           Copy-Item dist/OrcaSlicer-Web.exe $pkg/
           Copy-Item -Recurse web/static "$pkg/static"
           Copy-Item -Recurse resources/profiles/BBL "$pkg/profiles/BBL"
-          $engine = Get-ChildItem engine-download -Directory | Select-Object -First 1
-          Copy-Item -Recurse $engine.FullName "$pkg/engine"
+          Copy-Item -Recurse engine-download "$pkg/engine"
           Copy-Item "web/packaging/Start OrcaSlicer-Web.bat" $pkg/
           if (-not (Test-Path "$pkg/engine/orca-slicer.exe") -and -not (Test-Path "$pkg/engine/OrcaSlicer.exe")) {
             Get-ChildItem "$pkg/engine" | Select-Object -First 30 | Format-Table Name
