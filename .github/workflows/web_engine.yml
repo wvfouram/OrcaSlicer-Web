@@ -1,0 +1,44 @@
+name: Build engine (OrcaSlicer-Web)
+
+# Builds the slicing engine for Windows x64 (the server that runs on the user's PC)
+# and Linux x64 (used to benchmark and test slicing changes). Dependencies are
+# cached, so only the first run builds them (~1-2 h); later runs take minutes.
+on:
+  push:
+    branches:
+      - web
+    paths:
+      - 'deps/**'
+      - 'deps_src/**'
+      - 'cmake/**'
+      - 'src/**'
+      - '**/CMakeLists.txt'
+      - 'version.inc'
+      - 'resources/**'
+      - '.github/workflows/build_*.yml'
+      - '.github/workflows/web_engine.yml'
+      - 'build_linux.sh'
+      - 'build_win.bat'
+  workflow_dispatch:
+
+concurrency:
+  group: web-engine-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build_windows:
+    name: Build Windows x64
+    uses: ./.github/workflows/build_check_cache.yml
+    with:
+      os: windows-latest
+      arch: x64
+      compiler: clang
+    secrets: inherit
+
+  build_linux:
+    name: Build Linux x64
+    uses: ./.github/workflows/build_check_cache.yml
+    with:
+      os: ubuntu-24.04
+      arch: ''
+    secrets: inherit
