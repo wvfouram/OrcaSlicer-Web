@@ -1,0 +1,56 @@
+name: Build browser engine (WebAssembly)
+
+# Compiles the slicing engine and its libraries to WebAssembly for the single-file HTML version.
+# Libraries are cached per script revision; a failed library does not hide the others, and the
+# logs of every library are uploaded so each run shows the state of the whole port.
+on:
+  push:
+    branches:
+      - web
+    paths:
+      - 'web/wasm/**'
+      - '.github/workflows/web_wasm.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: web-wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deps:
+    name: WebAssembly libraries
+    runs-on: ubuntu-24.04
+    container: emscripten/emsdk:latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: 'false'
+          sparse-checkout: |
+            /web/wasm/
+          sparse-checkout-cone-mode: false
+      - name: Tools
+        run: apt-get update -qq && apt-get install -y -qq curl unzip xz-utils bzip2 m4 make >/dev/null
+      - name: Restore libraries
+        uses: actions/cache/restore@v6
+        with:
+          path: wasm-prefix
+          key: wasm-deps-${{ hashFiles('web/wasm/build_deps.sh', 'web/wasm/tbb_serial/**') }}-${{ github.run_id }}
+          restore-keys: wasm-deps-${{ hashFiles('web/wasm/build_deps.sh', 'web/wasm/tbb_serial/**') }}-
+      - name: Build libraries
+        run: bash web/wasm/build_deps.sh wasm-prefix
+      - name: Save libraries
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: wasm-prefix
+          key: wasm-deps-${{ hashFiles('web/wasm/build_deps.sh', 'web/wasm/tbb_serial/**') }}-${{ github.run_id }}
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wasm-deps-logs
+          path: |
+            wasm-deps-work/logs
+            wasm-deps-work/summary.txt
+          retention-days: 7
