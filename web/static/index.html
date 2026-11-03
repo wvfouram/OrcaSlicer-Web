@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrcaSlicer-Web</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports": {"three": "./vendor/three.module.min.js", "three/addons/": "./vendor/"}}</script>
+</head>
+<body>
+<header>
+  <div class="brand">OrcaSlicer<span>-Web</span></div>
+  <nav class="tabs">
+    <button class="tab active" data-view="prepare">Prepare</button>
+    <button class="tab" data-view="preview" id="tabPreview" disabled>Preview</button>
+  </nav>
+  <div class="printer-pill" id="printerPill" title="Printer">
+    <span class="dot" id="printerDot"></span><span id="printerPillText">Printer not set up</span>
+  </div>
+</header>
+
+<main>
+  <section class="viewport">
+    <canvas id="view"></canvas>
+    <div class="drop-hint" id="dropHint">
+      <div>Drop STL, 3MF, STEP or OBJ files here</div>
+      <label class="btn">Choose files<input type="file" id="fileInput" multiple accept=".stl,.3mf,.step,.stp,.obj,.amf,.drc" hidden></label>
+    </div>
+    <div class="layer-bar" id="layerBar" hidden>
+      <input type="range" id="layerSlider" min="0" max="0" value="0" orient="vertical">
+      <div class="layer-label" id="layerLabel"></div>
+    </div>
+    <div class="legend" id="legend" hidden></div>
+    <div class="toast" id="toast" hidden></div>
+  </section>
+
+  <aside class="side">
+    <div class="card">
+      <h3>Objects</h3>
+      <ul id="objectList" class="objects"><li class="muted">No models yet</li></ul>
+    </div>
+
+    <div class="card">
+      <h3>Printer</h3>
+      <select id="selPrinter"></select>
+      <h3>Filament</h3>
+      <div id="filamentRows"></div>
+      <button class="link" id="addFilament">+ Add filament</button>
+      <h3>Process</h3>
+      <select id="selProcess"></select>
+    </div>
+
+    <div class="card">
+      <h3>Quick settings</h3>
+      <div class="grid">
+        <label>Layer height (mm)<input type="number" step="0.02" min="0.04" max="0.6" data-key="layer_height"></label>
+        <label>Walls<input type="number" step="1" min="1" max="20" data-key="wall_loops"></label>
+        <label>Infill (%)<input type="number" step="5" min="0" max="100" data-key="sparse_infill_density" data-suffix="%"></label>
+        <label>Infill pattern
+          <select data-key="sparse_infill_pattern">
+            <option value="gyroid">Gyroid</option><option value="grid">Grid</option><option value="crosshatch">Cross hatch</option>
+            <option value="cubic">Cubic</option><option value="adaptivecubic">Adaptive cubic</option><option value="lightning">Lightning</option>
+            <option value="honeycomb">Honeycomb</option><option value="3dhoneycomb">3D honeycomb</option><option value="line">Line</option><option value="zigzag">Zig-zag</option><option value="concentric">Concentric</option>
+          </select>
+        </label>
+        <label>Supports
+          <select data-key="enable_support"><option value="0">Off</option><option value="1">On</option></select>
+        </label>
+        <label>Support type
+          <select data-key="support_type">
+            <option value="tree(auto)">Tree (auto)</option><option value="normal(auto)">Normal (auto)</option>
+            <option value="tree(manual)">Tree (manual)</option><option value="normal(manual)">Normal (manual)</option>
+          </select>
+        </label>
+        <label>Seam
+          <select data-key="seam_position">
+            <option value="aligned">Aligned</option><option value="nearest">Nearest</option><option value="back">Back</option><option value="random">Random</option>
+          </select>
+        </label>
+        <label>Brim
+          <select data-key="brim_type">
+            <option value="auto_brim">Auto</option><option value="no_brim">None</option><option value="outer_only">Outer</option><option value="brim_ears">Ears</option>
+          </select>
+        </label>
+      </div>
+      <h3>Prime tower</h3>
+      <div class="grid">
+        <label>Prime tower
+          <select data-key="enable_prime_tower"><option value="1">On</option><option value="0">Off</option></select>
+        </label>
+        <label class="check"><input type="checkbox" data-key="wipe_tower_no_sparse_layers" data-bool data-webdefault checked> Only grow on filament-change layers</label>
+      </div>
+    </div>
+
+    <button class="btn primary big" id="btnSlice" disabled>Slice</button>
+
+    <div class="card" id="resultCard" hidden>
+      <h3>Result</h3>
+      <div class="stats" id="stats"></div>
+      <div class="warn" id="warnings"></div>
+      <div class="row">
+        <a class="btn" id="dl3mf" download>Download .gcode.3mf</a>
+      </div>
+      <h3>Send to printer</h3>
+      <label>Job name<input type="text" id="jobName" value="orcaweb"></label>
+      <div id="amsMap"></div>
+      <label class="check"><input type="checkbox" id="optAms" checked> Use AMS</label>
+      <label class="check"><input type="checkbox" id="optLevel" checked> Bed leveling</label>
+      <label class="check"><input type="checkbox" id="optTimelapse"> Timelapse</label>
+      <button class="btn primary" id="btnPrint">Print</button>
+      <div class="muted" id="printMsg"></div>
+    </div>
+
+    <div class="card" id="statusCard" hidden>
+      <h3>Printer status</h3>
+      <div id="statusBody"></div>
+      <div class="row">
+        <button class="btn" data-cmd="pause">Pause</button>
+        <button class="btn" data-cmd="resume">Resume</button>
+        <button class="btn danger" data-cmd="stop">Stop</button>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<dialog id="printerDialog">
+  <form method="dialog" id="printerForm">
+    <h3>Connect your printer</h3>
+    <p class="muted">On the printer: Settings → enable <b>LAN Only</b> and <b>Developer Mode</b>. The IP and access code are on the same screen; the serial number is under Settings → Device.</p>
+    <label>Printer IP<input name="ip" required placeholder="192.168.1.50"></label>
+    <label>Serial number<input name="serial" required placeholder="01P00A..."></label>
+    <label>Access code<input name="access_code" required placeholder="8 digits"></label>
+    <div class="row"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="save">Save</button></div>
+  </form>
+</dialog>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

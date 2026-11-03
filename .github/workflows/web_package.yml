@@ -1,0 +1,80 @@
+name: Package OrcaSlicer-Web (Windows)
+
+# Bundles the web server (.exe, no Python needed), the browser UI, the Bambu profiles and the
+# newest engine build into one folder with a launcher. Runs after every engine build and on
+# every change to web/, so UI changes ship in minutes without rebuilding the engine.
+on:
+  push:
+    branches:
+      - web
+    paths:
+      - 'web/**'
+      - '.github/workflows/web_package.yml'
+  workflow_run:
+    workflows: ["Build engine (OrcaSlicer-Web)"]
+    types: [completed]
+    branches: [web]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  package_windows:
+    name: Package for Windows
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: 'false'
+          sparse-checkout: |
+            /web/
+            /resources/profiles/BBL/
+            /resources/profiles/BBL.json
+          sparse-checkout-cone-mode: false
+      - name: Find the newest successful engine build
+        id: engine_run
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $id = if ("${{ github.event_name }}" -eq "workflow_run") { "${{ github.event.workflow_run.id }}" } else {
+            gh run list -R ${{ github.repository }} --workflow web_engine.yml --branch web --status success --limit 1 --json databaseId --jq '.[0].databaseId' }
+          if (-not $id) { throw "No successful engine build yet" }
+          "id=$id" >> $env:GITHUB_OUTPUT
+      - name: Download engine
+        uses: actions/download-artifact@v8
+        with:
+          pattern: OrcaSlicer_Windows_*_portable
+          path: engine-download
+          run-id: ${{ steps.engine_run.outputs.id }}
+          github-token: ${{ github.token }}
+      - name: Build server exe
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r web/server/requirements.txt pyinstaller
+          python -m PyInstaller --noconfirm --onefile --name OrcaSlicer-Web --paths web/server `
+            --collect-submodules uvicorn --hidden-import multipart web/server/app.py
+      - name: Assemble package
+        shell: pwsh
+        run: |
+          $pkg = "OrcaSlicer-Web"
+          New-Item -ItemType Directory -Force "$pkg/profiles" | Out-Null
+          Copy-Item dist/OrcaSlicer-Web.exe $pkg/
+          Copy-Item -Recurse web/static "$pkg/static"
+          Copy-Item -Recurse resources/profiles/BBL "$pkg/profiles/BBL"
+          $engine = Get-ChildItem engine-download -Directory | Select-Object -First 1
+          Copy-Item -Recurse $engine.FullName "$pkg/engine"
+          Copy-Item "web/packaging/Start OrcaSlicer-Web.bat" $pkg/
+          if (-not (Test-Path "$pkg/engine/orca-slicer.exe") -and -not (Test-Path "$pkg/engine/OrcaSlicer.exe")) {
+            Get-ChildItem "$pkg/engine" | Select-Object -First 30 | Format-Table Name
+            throw "Engine executable not found in package"
+          }
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: OrcaSlicer-Web_Windows_x64
+          path: OrcaSlicer-Web
