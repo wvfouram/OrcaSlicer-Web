@@ -30,7 +30,8 @@ jobs:
     name: Build Windows x64
     uses: ./.github/workflows/build_check_cache.yml
     with:
-      os: windows-latest
+      # The owner's PC (self-hosted runner labelled orca-pc). Use windows-latest if it is offline.
+      os: orca-pc
       arch: x64
       compiler: clang
     secrets: inherit
