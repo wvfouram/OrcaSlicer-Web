@@ -37,6 +37,12 @@ jobs:
       NSIS_SHA256: BA63DFFC4410EE89193E1CB5A41989991BD77C61068DA17E3156D136B7B0B3D8
 
     steps:
+      # Self-hosted Windows PCs may lack pwsh on the runner service's PATH; add PowerShell 7.
+      - name: Add PowerShell 7 to PATH (self-hosted Windows)
+        if: runner.os == 'Windows' && runner.environment == 'self-hosted'
+        shell: cmd
+        run: echo C:\Program Files\PowerShell\7>>"%GITHUB_PATH%"
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
